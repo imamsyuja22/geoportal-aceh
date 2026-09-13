@@ -13,19 +13,24 @@ function AddLayerModal({
   const [searchTerm, setSearchTerm] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  
   const [serverCategory, setServerCategory] = useState('')
   const [selectedServer, setSelectedServer] = useState('')
   const [simpulKeyword, setSimpulKeyword] = useState('')
   const [showSimpulWarning, setShowSimpulWarning] = useState(false)
+  const [simpulError, setSimpulError] = useState('')
+
   const [selectedFiles, setSelectedFiles] = useState([])
   const [fileError, setFileError] = useState('')
   const [processingFile, setProcessingFile] = useState(false)
+
   const [urlServerCat, setUrlServerCat] = useState('')
   const [urlSelectedServer, setUrlSelectedServer] = useState('')
   const [urlInput, setUrlInput] = useState('')
   const [urlType, setUrlType] = useState('Geoserver (OGC)')
-  const [urlResults, setUrlResults] = useState([]) // Untuk menampung hasil metadata dummy
+  const [urlResults, setUrlResults] = useState([])
   const [urlError, setUrlError] = useState('')
+
   const simpulData = {
     'Kementerian/Lembaga': ['Badan Informasi Geospasial', 'Kementerian Dalam Negeri', 'BNPB', 'LAPAN'],
     'Pemerintah Provinsi': ['Provinsi Aceh', 'Provinsi Sumatera Utara', 'Provinsi DKI Jakarta'],
@@ -64,15 +69,26 @@ function AddLayerModal({
   }, [])
 
   const handleSimpulSearch = () => {
-    if (simpulKeyword) setShowSimpulWarning(true)
+    setSimpulError('')
+    setShowSimpulWarning(false)
+
+    if (!serverCategory) {
+      setSimpulError('Silakan pilih Kategori Server terlebih dahulu.')
+      return
+    }
+
+    if (!simpulKeyword.trim()) {
+      setSimpulError('Masukkan kata kunci pencarian.')
+      return
+    }
+
+    if (simpulKeyword) {
+      setShowSimpulWarning(true)
+    }
   }
 
   const handleFileChange = (e) => {
-
-    const files = Array.from(
-      e.target.files || []
-    )
-  
+    const files = Array.from(e.target.files || [])
     setFileError('')
   
     if (files.length === 0) {
@@ -80,31 +96,14 @@ function AddLayerModal({
       return
     }
   
-    const allowedExtensions = [
-      '.shp',
-      '.shx',
-      '.dbf',
-      '.prj'
-    ]
-  
+    const allowedExtensions = ['.shp', '.shx', '.dbf', '.prj']
     const invalidFiles = files.filter(
-      file =>
-        !allowedExtensions.some(
-          ext =>
-            file.name
-              .toLowerCase()
-              .endsWith(ext)
-        )
+      file => !allowedExtensions.some(ext => file.name.toLowerCase().endsWith(ext))
     )
   
     if (invalidFiles.length > 0) {
-  
-      setFileError(
-        'File hanya boleh berupa .shp, .shx, .dbf, dan .prj.'
-      )
-  
+      setFileError('File tidak sesuai format! Hanya diperbolehkan file .shp, .shx, .dbf, dan .prj.')
       setSelectedFiles([])
-  
       return
     }
   
@@ -112,64 +111,20 @@ function AddLayerModal({
   }
 
   const validateShapefileSet = () => {
-
-    const shpFile = selectedFiles.find(
-      file =>
-        file.name
-          .toLowerCase()
-          .endsWith('.shp')
-    )
+    const shpFile = selectedFiles.find(file => file.name.toLowerCase().endsWith('.shp'))
+    const shxFile = selectedFiles.find(file => file.name.toLowerCase().endsWith('.shx'))
+    const dbfFile = selectedFiles.find(file => file.name.toLowerCase().endsWith('.dbf'))
   
-    const shxFile = selectedFiles.find(
-      file =>
-        file.name
-          .toLowerCase()
-          .endsWith('.shx')
-    )
-  
-    const dbfFile = selectedFiles.find(
-      file =>
-        file.name
-          .toLowerCase()
-          .endsWith('.dbf')
-    )
-  
-    if (
-      !shpFile ||
-      !shxFile ||
-      !dbfFile
-    ) {
-  
-      setFileError(
-        'Shapefile minimal harus terdiri dari file .shp, .shx, dan .dbf.'
-      )
-  
+    if (!shpFile || !shxFile || !dbfFile) {
+      setFileError('Kumpulan Shapefile belum lengkap! Wajib memilih file .shp, .shx, dan .dbf sekaligus.')
       return false
     }
   
-    const getBaseName = (filename) =>
-      filename
-        .replace(/\.(shp|shx|dbf|prj)$/i, '')
-        .toLowerCase()
+    const getBaseName = (filename) => filename.replace(/\.(shp|shx|dbf|prj)$/i, '').toLowerCase()
+    const baseNames = [shpFile, shxFile, dbfFile].map(file => getBaseName(file.name))
   
-    const baseNames = [
-      shpFile,
-      shxFile,
-      dbfFile
-    ].map(
-      file => getBaseName(file.name)
-    )
-  
-    if (
-      !baseNames.every(
-        name => name === baseNames[0]
-      )
-    ) {
-  
-      setFileError(
-        'File .shp, .shx, dan .dbf harus memiliki nama dasar yang sama.'
-      )
-  
+    if (!baseNames.every(name => name === baseNames[0])) {
+      setFileError('Nama file tidak cocok! File .shp, .shx, dan .dbf harus memiliki nama depan yang persis sama.')
       return false
     }
   
@@ -177,123 +132,67 @@ function AddLayerModal({
   }
 
   const handleAddFile = async () => {
-
-    if (!validateShapefileSet()) {
-      return
-    }
+    if (!validateShapefileSet()) return
   
     try {
-  
       setProcessingFile(true)
       setFileError('')
   
-      const shpFile =
-        selectedFiles.find(
-          file =>
-            file.name
-              .toLowerCase()
-              .endsWith('.shp')
-        )
+      const shpFile = selectedFiles.find(file => file.name.toLowerCase().endsWith('.shp'))
+      const dbfFile = selectedFiles.find(file => file.name.toLowerCase().endsWith('.dbf'))
+      const prjFile = selectedFiles.find(file => file.name.toLowerCase().endsWith('.prj'))
   
-      const dbfFile =
-        selectedFiles.find(
-          file =>
-            file.name
-              .toLowerCase()
-              .endsWith('.dbf')
-        )
+      const shpBuffer = await shpFile.arrayBuffer()
+      const dbfBuffer = await dbfFile.arrayBuffer()
+      let prjText = prjFile ? await prjFile.text() : null
   
-      const prjFile =
-        selectedFiles.find(
-          file =>
-            file.name
-              .toLowerCase()
-              .endsWith('.prj')
-        )
-  
-      const shpBuffer =
-        await shpFile.arrayBuffer()
-  
-      const dbfBuffer =
-        await dbfFile.arrayBuffer()
-  
-      let prjText = null
-  
-      if (prjFile) {
-        prjText =
-          await prjFile.text()
-      }
-  
-      const geojson =
-        await shp({
-          shp: shpBuffer,
-          dbf: dbfBuffer,
-          prj: prjText || undefined
-        })
+      const geojson = await shp({
+        shp: shpBuffer,
+        dbf: dbfBuffer,
+        prj: prjText || undefined
+      })
   
       if (!geojson) {
-  
-        throw new Error(
-          'GeoJSON tidak berhasil dibuat.'
-        )
-  
+        throw new Error('GeoJSON tidak berhasil dibuat.')
       }
 
-      const layerName =
-        shpFile.name.replace(
-          /\.shp$/i,
-          ''
-        )
-  
+      const layerName = shpFile.name.replace(/\.shp$/i, '')
       const fileLayer = {
-  
-        id:
-          `file-${Date.now()}`,
-  
-        name:
-          layerName,
-  
-        source:
-          'file',
-  
-        visible:
-          true,
-  
+        id: `file-${Date.now()}`,
+        name: layerName,
+        source: 'file',
+        visible: true,
         geojson,
-  
-        featureInfoTemplate:
-          null,
-  
+        featureInfoTemplate: null,
       }
 
       onAddFile(fileLayer)  
       onClose()
-  
     } catch (error) {
-  
-      console.error(
-        'Gagal membaca Shapefile:',
-        error
-      )
-  
-      setFileError(
-        'Shapefile gagal dibaca. Pastikan file .shp, .shx, .dbf dan proyeksinya benar.'
-      )
-  
+      console.error('Gagal membaca Shapefile:', error)
+      setFileError('Gagal memproses file! Pastikan file tidak rusak dan menggunakan proyeksi EPSG:4326.')
     } finally {
       setProcessingFile(false)
     }
-  
   }
 
   const handleGetUrlData = () => {
     setUrlError('');
     setUrlResults([]);
 
-    if (urlSelectedServer.includes('[FAIL]')) {
-      setUrlError('Gagal memuat data, time out!'); // ATM Gambar 8
-    } else if (urlSelectedServer.includes('[OK]')) {
+    if (!urlServerCat) {
+      setUrlError('Pilih Kategori Server terlebih dahulu!');
+      return;
+    }
 
+    if (!urlSelectedServer) {
+      setUrlError('Pilih Nama Server terlebih dahulu!');
+      return;
+    }
+
+    if (urlSelectedServer.includes('[FAIL]')) {
+      setUrlError('Gagal terhubung ke server (Time Out)! Periksa kembali koneksi atau URL server.');
+    } else if (urlSelectedServer.includes('[OK]')) {
       setUrlResults([
         {
           id: 1,
@@ -336,12 +235,24 @@ function AddLayerModal({
 
         <div className="modal-body">
           
+          {/* TAB 1: DATASET */}
           {activeTab === 'DATASET' && (
             <>
-              <div className="search-box-container">
-                <input type="text" placeholder="Cari Peta Dataset..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                <button className="btn-search">Cari</button>
+              <div className="form-group-guidance">
+                <div className="search-box-container">
+                  <input 
+                    type="text" 
+                    placeholder="Masukkan kata kunci pencarian (contoh: Jalan, Sungai, Batas Wilayah)..." 
+                    value={searchTerm} 
+                    onChange={(e) => setSearchTerm(e.target.value)} 
+                  />
+                  <button className="btn-search">Cari</button>
+                </div>
+                <small className="help-text">Ketik nama dataset untuk menyaring daftar peta yang tersedia.</small>
               </div>
+
+              {error && <div className="url-error-box">{error}</div>}
+
               <div className="dataset-list">
                 {loading ? <p className="loading-text">Memuat dataset...</p> : 
                   datasets.filter(d => (d.title || d.name || '').toLowerCase().includes(searchTerm.toLowerCase()))
@@ -367,137 +278,107 @@ function AddLayerModal({
             </>
           )}
 
+          {/* TAB 2: SIMPUL */}
           {activeTab === 'SIMPUL' && (
             <div className="simpul-container">
               <div className="form-group-simpul">
                 <label>Server Kategori :</label>
-                <select value={serverCategory} onChange={(e) => { setServerCategory(e.target.value); setSelectedServer(''); }}>
+                <select value={serverCategory} onChange={(e) => { setServerCategory(e.target.value); setSelectedServer(''); setSimpulError(''); }}>
                   <option value="">--- Pilih Server Kategori ---</option>
                   {Object.keys(simpulData).map(cat => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
+                <small className="help-text">Pilih tingkatan instansi pengelola jaringan.</small>
               </div>
+
               <div className="form-group-simpul">
                 <label>Pilih Server :</label>
                 <select value={selectedServer} onChange={(e) => setSelectedServer(e.target.value)} disabled={!serverCategory}>
                   <option value="">--- Semua Server ---</option>
                   {serverCategory && simpulData[serverCategory].map(srv => <option key={srv} value={srv}>{srv}</option>)}
                 </select>
+                <small className="help-text">Pilih spesifik nama instansi/daerah (Opsional).</small>
               </div>
+
               <div className="form-group-simpul">
                 <label>Kata Kunci :</label>
                 <div className="input-with-btn">
-                  <input type="text" placeholder="peta" value={simpulKeyword} onChange={(e) => setSimpulKeyword(e.target.value)} />
+                  <input 
+                    type="text" 
+                    placeholder="Contoh: peta, tata ruang, persampahan" 
+                    value={simpulKeyword} 
+                    onChange={(e) => { setSimpulKeyword(e.target.value); setSimpulError(''); }} 
+                  />
                   <button className="btn-search-simpul" onClick={handleSimpulSearch}>Cari</button>
                 </div>
+                <small className="help-text">Masukkan istilah atau tema peta yang ingin dicari.</small>
               </div>
-              {showSimpulWarning && <div className="warning-box-simpul">Tidak dapat terhubung dengan Server!</div>}
+
+              {simpulError && <div className="url-error-box">{simpulError}</div>}
+              {showSimpulWarning && <div className="warning-box-simpul">Tidak dapat terhubung dengan Server Simpul! Periksa kembali jaringan Anda.</div>}
               <div className="simpul-result-placeholder"></div>
             </div>
           )}
 
-{activeTab === 'FILE' && (
+          {/* TAB 3: FILE */}
+          {activeTab === 'FILE' && (
+            <div className="file-upload-container">
+              <div className="notice-box-file">
+                <strong>💡 Petunjuk Pengunggahan File Shapefile:</strong>
+                <p>
+                  - Minimal pilih 3 file sekaligus: <b>.shp</b>, <b>.shx</b>, dan <b>.dbf</b> dengan nama dasar yang sama.<br/>
+                  - File <b>.prj</b> opsional namun disarankan untuk sistem proyeksi (EPSG:4326).<br/>
+                  - Pastikan data tidak memiliki dimensi Z (3D).
+                </p>
+              </div>
 
-<div className="file-upload-container">
+              <div className="file-input-wrapper">
+                <input
+                  type="text"
+                  className="file-path-display"
+                  placeholder="Pilih file .shp, .shx, .dbf dari komputer Anda..."
+                  value={selectedFiles.length > 0 ? `${selectedFiles.length} file dipilih` : ''}
+                  readOnly
+                />
+                <label className="btn-browse">
+                  Browse
+                  <input
+                    type="file"
+                    multiple
+                    accept=".shp,.shx,.dbf,.prj"
+                    onChange={handleFileChange}
+                    style={{ display: 'none' }}
+                  />
+                </label>
+              </div>
+              <small className="help-text" style={{ marginBottom: '10px' }}>
+                Tekan tombol 'Browse' dan tahan tombol <b>Ctrl / Shift</b> untuk memilih beberapa file sekaligus.
+              </small>
 
-  <div className="notice-box-file">
+              {selectedFiles.length > 0 && (
+                <div className="selected-files-list">
+                  {selectedFiles.map((file, index) => (
+                    <div className="file-info-selected" key={`${file.name}-${index}`}>
+                      <span>📄 {file.name}</span>
+                      <small>{(file.size / 1024).toFixed(2)} KB</small>
+                    </div>
+                  ))}
+                </div>
+              )}
 
-    <strong>Perhatikan.</strong>
+              {fileError && <div className="file-error-message">{fileError}</div>}
+            </div>
+          )}
 
-    <p>
-      Shapefile minimal terdiri dari set
-      (.shp .shx .dbf);
-      file .prj disarankan;
-      tidak memiliki dimensi Z;
-      proyeksi EPSG:4326.
-    </p>
-
-  </div>
-
-
-  <div className="file-input-wrapper">
-
-    <input
-      type="text"
-      className="file-path-display"
-      placeholder="Choose shapefile..."
-      value={
-        selectedFiles.length > 0
-          ? `${selectedFiles.length} file dipilih`
-          : ''
-      }
-      readOnly
-    />
-
-    <label className="btn-browse">
-
-      Browse
-
-      <input
-        type="file"
-        multiple
-        accept=".shp,.shx,.dbf,.prj"
-        onChange={handleFileChange}
-        style={{
-          display: 'none'
-        }}
-      />
-
-    </label>
-
-  </div>
-
-  {selectedFiles.length > 0 && (
-
-    <div className="selected-files-list">
-
-      {selectedFiles.map(
-        (file, index) => (
-
-          <div
-            className="file-info-selected"
-            key={`${file.name}-${index}`}
-          >
-
-            <span>
-              📄 {file.name}
-            </span>
-
-            <small>
-              {(file.size / 1024)
-                .toFixed(2)} KB
-            </small>
-
-          </div>
-
-        )
-      )}
-
-    </div>
-
-  )}
-
-  {fileError && (
-
-    <div className="file-error-message">
-
-      {fileError}
-
-    </div>
-
-  )}
-
-</div>
-
-)}
-
+          {/* TAB 4: URL */}
           {activeTab === 'URL' && (
             <div className="url-tab-container">
               <div className="form-group-url">
                 <label>Server Kategori:</label>
-                <select value={urlServerCat} onChange={(e) => { setUrlServerCat(e.target.value); setUrlSelectedServer(''); setUrlInput(''); }}>
-                  <option value="">--- Pilih Server ---</option>
+                <select value={urlServerCat} onChange={(e) => { setUrlServerCat(e.target.value); setUrlSelectedServer(''); setUrlInput(''); setUrlError(''); }}>
+                  <option value="">--- Pilih Kategori Server ---</option>
                   {Object.keys(urlServerMapping).map(cat => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
+                <small className="help-text">Pilih kategori instansi penyedia Web Service.</small>
               </div>
 
               <div className="form-group-url">
@@ -506,19 +387,28 @@ function AddLayerModal({
                   value={urlSelectedServer} 
                   onChange={(e) => {
                     setUrlSelectedServer(e.target.value);
-                    const found = urlServerMapping[urlServerCat].find(s => s.name === e.target.value);
+                    const found = urlServerMapping[urlServerCat]?.find(s => s.name === e.target.value);
                     setUrlInput(found ? found.url : '');
+                    setUrlError('');
                   }}
                   disabled={!urlServerCat}
                 >
-                  <option value="">---Simpul Jaringan Informasi Geospasial---</option>
+                  <option value="">--- Pilih Simpul Jaringan Informasi Geospasial ---</option>
                   {urlServerCat && urlServerMapping[urlServerCat].map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
                 </select>
+                <small className="help-text">Pilih nama layanan geoportal yang aktif.</small>
               </div>
 
               <div className="form-group-url">
                 <label>Url :</label>
-                <input type="text" className="url-display-input" value={urlInput} readOnly placeholder="Map Server Rest API url" />
+                <input 
+                  type="text" 
+                  className="url-display-input" 
+                  value={urlInput} 
+                  readOnly 
+                  placeholder="URL endpoint MapServer / Rest API akan terisi otomatis..." 
+                />
+                <small className="help-text">Tautan alamat link server yang terpilih.</small>
               </div>
 
               <div className="form-group-url type-row">
@@ -560,46 +450,26 @@ function AddLayerModal({
         <div className="modal-footer">
           <button className="btn-close-modal" onClick={onClose}>✖ Close</button>
           <button
-  className="btn-add-modal"
-
-  disabled={
-    activeTab === 'DATASET'
-      ? !selected
-      : activeTab === 'FILE'
-        ? selectedFiles.length === 0 ||
-          processingFile
-        : true
-  }
-
-  onClick={() => {
-
-    if (
-      activeTab === 'DATASET' &&
-      selected
-    ) {
-
-      onAdd(selected)
-
-    }
-
-    else if (
-      activeTab === 'FILE'
-    ) {
-
-      handleAddFile()
-
-    }
-
-  }}
->
-
-  {processingFile
-    ? 'Memproses...'
-    : '➕ Add'
-  }
-
-</button>
+            className="btn-add-modal"
+            disabled={
+              activeTab === 'DATASET'
+                ? !selected
+                : activeTab === 'FILE'
+                  ? selectedFiles.length === 0 || processingFile
+                  : true
+            }
+            onClick={() => {
+              if (activeTab === 'DATASET' && selected) {
+                onAdd(selected)
+              } else if (activeTab === 'FILE') {
+                handleAddFile()
+              }
+            }}
+          >
+            {processingFile ? 'Memproses...' : '➕ Add'}
+          </button>
         </div>
+
       </div>
     </div>
   )
